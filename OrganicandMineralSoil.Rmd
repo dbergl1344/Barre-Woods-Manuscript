@@ -10,12 +10,12 @@ library(ggplot2)
 library(dplyr)
 library(ggpubr)  # for significance annotations
 
-# Convert treatment to factor with desired order
+# Convert treatment and horizon to factors with ordered levels
 dt13 <- dt13 %>%
   mutate(plot = factor(plot, levels = c("Control", "Heated")),
          horizon = factor(horizon, levels = c("Organic", "Mineral")))
 
-# Summarize SOM means and SE by horizon and treatment
+# Summarize SOM mean and standard error by group
 som_summary <- dt13 %>%
   group_by(plot, horizon) %>%
   summarise(
@@ -24,36 +24,37 @@ som_summary <- dt13 %>%
     .groups = "drop"
   )
 
-# Optional: t-test for significance (adjust if needed)
+# Perform t-tests comparing Control vs Heated for each horizon
 ttest_results <- dt13 %>%
   group_by(horizon) %>%
   summarise(
     p = t.test(som ~ plot)$p.value
-  )
-
-# Add asterisks based on p-value
-ttest_results <- ttest_results %>%
+  ) %>%
   mutate(sig = case_when(
     p < 0.001 ~ "***",
     p < 0.01 ~ "**",
     p < 0.05 ~ "*",
-    TRUE ~ "ns"
+    TRUE ~ NA_character_  # Remove "ns" by setting it to NA
   ))
 
-# Join significance back to the summary
+# Join significance labels to som_summary
 som_summary <- som_summary %>%
   left_join(ttest_results, by = "horizon")
 
-# Plot
+# Manually calculate x position for Heated bars (dodge width = 0.7 → offset = 0.35)
+som_summary <- som_summary %>%
+  mutate(x_pos = as.numeric(horizon) + ifelse(plot == "Heated", 0.18, -0.18))
+
+# Final plot
 ggplot(som_summary, aes(x = horizon, y = mean_som, fill = plot)) +
   geom_bar(position = position_dodge(width = 0.7), stat = "identity", color = "black", width = 0.6) +
   geom_errorbar(aes(ymin = mean_som - se_som, ymax = mean_som + se_som),
                 width = 0.2, position = position_dodge(width = 0.7)) +
-  # Add significance labels above bars
-  geom_text(data = som_summary %>% filter(plot == "Heated"),
-            aes(label = sig, y = mean_som + se_som + 0.03),
-            position = position_dodge(width = 0.7), size = 5) +
-  scale_fill_manual(values = c("Control" = "#999999", "Heated" = "#E69F00")) +  # color-blind friendly
+  # Add asterisks only for significant results (excluding NA)
+  geom_text(data = som_summary %>% filter(plot == "Heated" & !is.na(sig)),
+            aes(x = x_pos, y = mean_som + se_som + 0.05, label = sig),
+            size = 5) +
+  scale_fill_manual(values = c("Control" = "#A89984", "Heated" = "#E69F00")) +
   theme_classic(base_size = 14) +
   theme(
     axis.title = element_text(size = 16, face = "bold"),
@@ -61,12 +62,17 @@ ggplot(som_summary, aes(x = horizon, y = mean_som, fill = plot)) +
     legend.title = element_blank(),
     legend.text = element_text(size = 12),
     panel.border = element_rect(colour = "black", fill = NA, size = 1),
-    axis.line = element_blank()
+    axis.line = element_blank(),  
+    legend.position = c(0.85, 0.85),  # adjust as needed
+    legend.background = element_rect(fill = "white", color = "black"),
+    legend.key = element_blank()
+
   ) +
   labs(
     x = "Soil Horizon",
     y = "Soil Organic Matter (SOM %)"
   )
+
 
 ```
 
